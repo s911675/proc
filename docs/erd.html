@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Work Flow ERD</title>
+  <style>
+    :root { --fg: #1f2937; --muted: #6b7280; --line: #e5e7eb; --accent: #2563eb; --bg: #ffffff; --card: #f9fafb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 32px 64px; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--fg); background: var(--bg); line-height: 1.5; }
+    h1 { margin: 0 0 4px; font-size: 24px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar button { border: 1px solid var(--line); background: #fff; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+    .toolbar span { color: var(--muted); font-size: 13px; }
+    .canvas { border: 1px solid var(--line); border-radius: 8px; overflow: auto; max-height: 80vh; background: #fff; }
+    .canvas .mermaid { transform-origin: 0 0; padding: 16px; width: max-content; }
+    .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 24px; }
+    .legend section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+    .legend h2 { font-size: 15px; margin: 0 0 6px; }
+    .legend ul { margin: 0; padding-left: 18px; font-size: 13px; }
+    .legend code { background: #eef2ff; padding: 1px 4px; border-radius: 4px; }
+    table.ex { border-collapse: collapse; font-size: 13px; margin-top: 6px; width: 100%; }
+    table.ex th, table.ex td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+    table.ex th { background: #eef2ff; }
+    .note { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>업무 상태 관리 ERD</h1>
+  <p class="sub">MySQL 8.4 · 11 tables · 업무유형별 상태 전이(state machine) + 사용자 → 역할(계층) → 권한 → 전이 · 공통 감사 컬럼(created_at/by, updated_at/by)은 도식에서 생략</p>
+
+  <div class="toolbar">
+    <button id="zoomOut">−</button>
+    <button id="zoomReset">100%</button>
+    <button id="zoomIn">+</button>
+    <span id="zoomLabel">100%</span>
+  </div>
+
+  <div class="canvas">
+<pre class="mermaid" id="erd">
+erDiagram
+    dept ||--o{ dept : "상위부서"
+    dept ||--o{ users : "소속"
+    users ||--o{ user_role : "보유"
+    role ||--o{ user_role : "부여"
+    role |o--o{ role : "상위역할"
+    role ||--o{ role_permission : "권한 묶음"
+    permission ||--o{ role_permission : "포함"
+    permission ||--o{ work_transition : "필요 권한"
+
+    work_type ||--o{ work_status : "상태 정의"
+    work_type ||--o{ work_transition : "전이 정의"
+    work_status ||--o{ work_transition : "from"
+    work_status ||--o{ work_transition : "to"
+
+    work_type ||--o{ work_item : "업무 건"
+    work_status ||--o{ work_item : "현재 상태"
+    users ||--o{ work_item : "등록자"
+    work_item ||--o{ work_status_history : "이력"
+    work_transition |o--o{ work_status_history : "적용 전이"
+    users ||--o{ work_status_history : "처리자"
+
+    dept {
+        bigint dept_id PK
+        bigint parent_dept_id FK
+        varchar dept_code UK
+        varchar dept_name
+        int sort_order
+        char use_yn
+    }
+    users {
+        bigint user_id PK
+        varchar login_id UK
+        varchar password "BCrypt"
+        varchar user_name
+        varchar email
+        bigint dept_id FK
+        varchar status "ACTIVE, LOCKED, RETIRED"
+        datetime last_login_at
+    }
+    role {
+        bigint role_id PK
+        bigint parent_role_id FK "상위 역할, NULL=최상위"
+        varchar role_code UK "ADMIN, MANAGER, USER ..."
+        varchar role_name
+    }
+    user_role {
+        bigint user_id PK, FK
+        bigint role_id PK, FK
+    }
+    permission {
+        bigint permission_id PK
+        varchar perm_code UK "WORK.A_TYPE.COMPLETE"
+        varchar perm_name
+        varchar category
+    }
+    role_permission {
+        bigint role_id PK, FK
+        bigint permission_id PK, FK
+    }
+    work_type {
+        varchar type_code PK
+        varchar type_name
+        varchar description
+        int sort_order
+        char use_yn
+    }
+    work_status {
+        varchar type_code PK, FK
+        varchar status_code PK
+        varchar status_name
+        char is_start "Y: 최초 상태"
+        char is_end "Y: 종료 상태"
+        int sort_order
+    }
+    work_transition {
+        bigint transition_id PK
+        varchar type_code FK
+        varchar from_status FK "UK type+from+to"
+        varchar to_status FK
+        varchar action_name "버튼명: 접수, 보완요청 ..."
+        bigint permission_id FK "필요 권한"
+        int sort_order
+    }
+    work_item {
+        bigint item_id PK
+        varchar type_code FK
+        varchar item_no UK "WRK-20261109-0001"
+        varchar title
+        text content
+        varchar current_status FK
+        bigint owner_id FK
+        json form_data "업무유형별 추가 항목"
+        datetime completed_at
+    }
+    work_status_history {
+        bigint history_id PK
+        bigint item_id FK
+        bigint transition_id FK "nullable: 최초 생성"
+        varchar from_status
+        varchar to_status
+        bigint actor_id FK
+        varchar comment
+        datetime created_at
+    }
+</pre>
+  </div>
+
+  <div class="legend">
+    <section>
+      <h2>사용자 / 권한</h2>
+      <ul>
+        <li><code>dept</code> 부서 (자기참조 계층)</li>
+        <li><code>users</code> 사용자</li>
+        <li><code>role</code> 역할 = 권한 묶음, <b>계층형</b>(parent_role_id) — 상위 역할은 하위 역할 권한 상속 (예: ADMIN &gt; MANAGER &gt; USER)</li>
+        <li><code>user_role</code> 한 사용자가 <b>여러 역할</b> 보유 (N:M) — 기본 역할 + 작은 추가 역할</li>
+        <li><code>permission</code> 가장 작은 권한 단위 (Spring Security authority로 사용)</li>
+        <li><code>role_permission</code> 역할에 권한 부여 (N:M)</li>
+      </ul>
+    </section>
+    <section>
+      <h2>상태 흐름 정의</h2>
+      <ul>
+        <li><code>work_type</code> 업무 유형</li>
+        <li><code>work_status</code> 유형별 상태 목록 (시작/종료 표시)</li>
+        <li><code>work_transition</code> 허용된 상태 이동 + 필요 권한 1개</li>
+      </ul>
+    </section>
+    <section>
+      <h2>실행</h2>
+      <ul>
+        <li><code>work_item</code> 실제 업무 건, 현재 상태 보유</li>
+        <li><code>work_status_history</code> 상태 변경 이력 (INSERT 전용)</li>
+      </ul>
+    </section>
+    <section>
+      <h2>예시: A → B ↔ C → D</h2>
+      <table class="ex">
+        <tr><th>from</th><th>to</th><th>action</th><th>필요 권한</th></tr>
+        <tr><td>A</td><td>B</td><td>접수</td><td>WORK.A_TYPE.RECEIVE</td></tr>
+        <tr><td>B</td><td>C</td><td>검토요청</td><td>WORK.A_TYPE.REQUEST_REVIEW</td></tr>
+        <tr><td>C</td><td>B</td><td>보완요청</td><td>WORK.A_TYPE.RETURN</td></tr>
+        <tr><td>C</td><td>D</td><td>완료</td><td>WORK.A_TYPE.COMPLETE</td></tr>
+      </table>
+      <table class="ex">
+        <tr><th>역할 (계층)</th><th>직접 등록 권한</th><th>실제 보유</th></tr>
+        <tr><td>USER</td><td>RECEIVE, REQUEST_REVIEW</td><td>접수, 검토요청</td></tr>
+        <tr><td>SUB_MANAGER &gt; USER</td><td>RETURN</td><td>접수, 검토요청, 보완요청</td></tr>
+        <tr><td>MANAGER &gt; SUB_MANAGER</td><td>COMPLETE</td><td>전체</td></tr>
+        <tr><td>COMPLETE_APPROVER</td><td>COMPLETE</td><td>완료 (추가 역할용)</td></tr>
+      </table>
+    </section>
+  </div>
+
+  <p class="note">권한 체크: 사용자의 역할에서 시작해 하위 역할(parent_role_id로 자기를 가리키는 역할)을 모두 모으고, 그 역할들의 권한 중에 전이의 필요 권한이 있으면 전이 가능 (MySQL 8 <code>WITH RECURSIVE</code>). 로그인 시 같은 방식으로 사용자 권한 목록을 만들어 Spring Security authority로 사용.</p>
+  <pre class="note" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;overflow-x:auto;color:#1f2937">WITH RECURSIVE eff_role AS (
+    SELECT ur.role_id FROM user_role ur WHERE ur.user_id = #{userId}
+    UNION
+    SELECT c.role_id FROM role c JOIN eff_role e ON c.parent_role_id = e.role_id
+)
+SELECT EXISTS (
+    SELECT 1 FROM eff_role e
+      JOIN role_permission rp ON rp.role_id = e.role_id
+      JOIN work_transition t  ON t.permission_id = rp.permission_id
+     WHERE t.transition_id = #{transitionId}
+);</pre>
+  <p class="note">주요 인덱스: work_transition UK(type_code, from_status, to_status) · work_item(type_code, current_status) · work_item(owner_id) · work_status_history(item_id, created_at)</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default', er: { useMaxWidth: false } });
+
+    let zoom = 1;
+    const erd = document.getElementById('erd');
+    const label = document.getElementById('zoomLabel');
+    function apply() { erd.style.transform = `scale(${zoom})`; label.textContent = Math.round(zoom * 100) + '%'; }
+    document.getElementById('zoomIn').onclick = () => { zoom = Math.min(3, zoom + 0.1); apply(); };
+    document.getElementById('zoomOut').onclick = () => { zoom = Math.max(0.3, zoom - 0.1); apply(); };
+    document.getElementById('zoomReset').onclick = () => { zoom = 1; apply(); };
+  </script>
+</body>
+</html>
